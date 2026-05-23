@@ -3,13 +3,14 @@
  * @file    RCC_Int.h
  * @author  Abdelrahman Elzayat
  * @brief   Simple RCC driver interface for STM32F446RE.
- * @version 2.0
+ * @version 2.2
  * @date    Jun 27, 2025
  ******************************************************************************
  * @details
  * This file contains the public interface of the RCC driver.
  *
  * The driver supports:
+ * - Enabling and disabling clock sources: HSI, HSE and PLL.
  * - Selecting system clock source: HSI, HSE, PLLP or PLLR.
  * - Configuring the main PLL.
  * - Applying a complete clock tree configuration.
@@ -37,6 +38,40 @@
 /*==============================================================================*/
 /*                              Clock Types                                      */
 /*==============================================================================*/
+
+/**
+ * @brief Clock source options used by RCC_SetClockStatus() and RCC_SetSystemClock().
+ *
+ * @details
+ * - HSIk and HSEk are oscillator sources and valid system clock sources.
+ * - PLLk is a compatibility name similar to the STM32F103 driver.
+ *   On STM32F446RE, PLLk selects the main PLL P output when used as SYSCLK.
+ * - PLLPk explicitly selects the main PLL P output when used as SYSCLK.
+ * - PLLRk explicitly selects the main PLL R output when used as SYSCLK.
+ *
+ * @note
+ * For RCC_SetClockStatus(), PLLk, PLLPk and PLLRk all control the same main PLL
+ * enable bit because PLLP and PLLR are outputs of the same PLL block.
+ */
+typedef enum
+{
+    HSIk  = 0U,       /**< High Speed Internal oscillator. */
+    HSEk  = 1U,       /**< High Speed External oscillator. */
+    PLLk  = 2U,       /**< Main PLL clock, selects PLLP output as SYSCLK. */
+    PLLPk = PLLk,     /**< Explicit main PLL P output selection. */
+    PLLRk = 3U        /**< Explicit main PLL R output selection. */
+} Clock_t;
+
+
+/**
+ * @brief Clock source enable/disable status.
+ */
+typedef enum
+{
+    OFF = 0U,         /**< Disable selected clock source. */
+    ON  = 1U          /**< Enable selected clock source. */
+} Status_t;
+
 
 /**
  * @brief System clock source options.
@@ -305,6 +340,40 @@ error_t RCC_Init(void);
  * ClockConfig will be applied before switching the system clock.
  */
 error_t RCC_ApplyClockConfig(const RCC_ClockConfig_t *ClockConfig);
+
+
+/**
+ * @brief Enables or disables a clock source.
+ *
+ * @param clk Clock source selected from @ref Clock_t.
+ * @param status Required status selected from @ref Status_t.
+ *
+ * @retval OK           Clock source status changed successfully.
+ * @retval TIMEOUT      Clock source did not reach the requested ready state.
+ * @retval OUT_OF_RANGE Invalid clock source or status parameter.
+ * @retval NOK          Clock source cannot be disabled because it is currently
+ *                      used as SYSCLK or feeding the active PLL SYSCLK.
+ *
+ * @note
+ * Disabling the currently selected system clock source is not recommended.
+ */
+error_t RCC_SetClockStatus(Clock_t clk, Status_t status);
+
+
+/**
+ * @brief Selects the system clock source.
+ *
+ * @param clk System clock source selected from @ref Clock_t.
+ *
+ * @retval OK           System clock source selected successfully.
+ * @retval TIMEOUT      System clock switch did not complete or selected source is not ready.
+ * @retval OUT_OF_RANGE Invalid clock source parameter.
+ *
+ * @warning
+ * The selected clock source must be enabled and ready before calling
+ * this function.
+ */
+error_t RCC_SetSystemClock(Clock_t clk);
 
 
 /**
