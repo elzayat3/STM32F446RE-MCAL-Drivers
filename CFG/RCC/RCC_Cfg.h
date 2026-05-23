@@ -3,7 +3,7 @@
  * @file    RCC_Cfg.h
  * @author  Abdelrahman Elzayat
  * @brief   Simple RCC configuration header file.
- * @version 2.0
+ * @version 2.2
  * @date    Jun 27, 2025
  ******************************************************************************
  * @details
@@ -49,6 +49,9 @@
  *
  * @note
  * Default value assumes an 8 MHz HSE source.
+ * @note
+ * If HSE is used as PLL source with 8 MHz input, PLLM should be 8
+ * to keep PLL_IN = 1 MHz.
  */
 #define RCC_CFG_HSE_VALUE_HZ                  8000000UL
 

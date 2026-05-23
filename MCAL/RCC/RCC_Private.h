@@ -3,7 +3,7 @@
  * @file    RCC_Private.h
  * @author  Abdelrahman Elzayat
  * @brief   Private RCC definitions for STM32F446RE.
- * @version 2.0
+ * @version 2.2
  * @date    Jun 27, 2025
  ******************************************************************************
  * @details
@@ -39,6 +39,16 @@
  * @brief Invalid encoding value used when a prescaler or PLL value is invalid.
  */
 #define RCC_INVALID_ENCODING                  0xFFFFFFFFUL
+
+/**
+ * @brief Ready flag cleared value.
+ */
+#define RCC_READY_FLAG_CLEAR                  0U
+
+/**
+ * @brief Ready flag set value.
+ */
+#define RCC_READY_FLAG_SET                    1U
 
 /**
  * @brief One-bit mask.
@@ -237,6 +247,31 @@
  * @brief APB2 prescaler field mask.
  */
 #define RCC_CFGR_PPRE2_MASK                   (RCC_MASK_3_BITS << RCC_CFGR_PPRE2_POS)
+
+
+/*==============================================================================*/
+/*                              SYSCLK Switch Values                             */
+/*==============================================================================*/
+
+/**
+ * @brief HSI selected as system clock.
+ */
+#define RCC_SYSCLK_SW_HSI                     0U
+
+/**
+ * @brief HSE selected as system clock.
+ */
+#define RCC_SYSCLK_SW_HSE                     1U
+
+/**
+ * @brief Main PLL P output selected as system clock.
+ */
+#define RCC_SYSCLK_SW_PLLP                    2U
+
+/**
+ * @brief Main PLL R output selected as system clock.
+ */
+#define RCC_SYSCLK_SW_PLLR                    3U
 
 
 /*==============================================================================*/

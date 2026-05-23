@@ -3,15 +3,17 @@
  * @file    RCC_Prg.c
  * @author  Abdelrahman Elzayat
  * @brief   Simple RCC driver source file for STM32F446RE.
- * @version 2.0
+ * @version 2.2
  * @date    Jun 27, 2025
  ******************************************************************************
  */
+
 #include "Std_Types.h"
 #include "MemMap.h"
 #include "RCC_Int.h"
 #include "RCC_Private.h"
 #include "RCC_Cfg.h"
+
 
 /*==============================================================================*/
 /*                              Static Helpers                                   */
@@ -37,6 +39,14 @@ static error_t RCC_WaitBit(volatile uint32_t *Reg, uint8_t Bit, uint8_t Value)
 }
 
 
+static uint32_t RCC_GetCurrentSystemClock(void)
+{
+    uint32_t CurrentClock = ((RCC->CFGR & RCC_CFGR_SWS_MASK) >> RCC_CFGR_SWS_POS);
+
+    return CurrentClock;
+}
+
+
 static error_t RCC_WaitSystemClock(uint32_t ClockValue)
 {
     error_t ErrorState = TIMEOUT;
@@ -44,13 +54,43 @@ static error_t RCC_WaitSystemClock(uint32_t ClockValue)
 
     while (Timeout > ZERO_U)
     {
-        if (((RCC->CFGR & RCC_CFGR_SWS_MASK) >> RCC_CFGR_SWS_POS) == ClockValue)
+        if (RCC_GetCurrentSystemClock() == ClockValue)
         {
             ErrorState = OK;
             break;
         }
 
         Timeout--;
+    }
+
+    return ErrorState;
+}
+
+
+static error_t RCC_CheckClockCanBeDisabled(Clock_t clk)
+{
+    error_t ErrorState = OK;
+    uint32_t CurrentClock = RCC_GetCurrentSystemClock();
+    uint32_t PLLSource = GET_BIT(RCC->PLLCFGR, RCC_PLLCFGR_PLLSRC_POS);
+
+    if (((clk == HSIk) && (CurrentClock == RCC_SYSCLK_SW_HSI)) ||
+        ((clk == HSEk) && (CurrentClock == RCC_SYSCLK_SW_HSE)) ||
+        (((clk == PLLk) || (clk == PLLRk)) &&
+         ((CurrentClock == RCC_SYSCLK_SW_PLLP) || (CurrentClock == RCC_SYSCLK_SW_PLLR))))
+    {
+        ErrorState = NOK;
+    }
+    else if ((CurrentClock == RCC_SYSCLK_SW_PLLP) || (CurrentClock == RCC_SYSCLK_SW_PLLR))
+    {
+        if (((clk == HSIk) && (PLLSource == 0U)) ||
+            ((clk == HSEk) && (PLLSource == 1U)))
+        {
+            ErrorState = NOK;
+        }
+    }
+    else
+    {
+        /* Clock source can be disabled safely. */
     }
 
     return ErrorState;
@@ -153,17 +193,24 @@ static error_t RCC_GetConfigSYSCLK(const RCC_ClockConfig_t *ClockConfig, uint32_
     }
     else if ((ClockConfig->SysClk == RCC_SYSCLK_PLLP) || (ClockConfig->SysClk == RCC_SYSCLK_PLLR))
     {
-        SrcFreq = RCC_GetPLLSourceFreq(ClockConfig->PLL.Source);
-        PLLIn = (uint64_t)SrcFreq / ClockConfig->PLL.PLLM;
-        VCO = PLLIn * ClockConfig->PLL.PLLN;
-
-        if (ClockConfig->SysClk == RCC_SYSCLK_PLLP)
+        if (ClockConfig->PLL.PLLM == ZERO_U)
         {
-            *Freq = (uint32_t)(VCO / ClockConfig->PLL.PLLP);
+            ErrorState = OUT_OF_RANGE;
         }
         else
         {
-            *Freq = (uint32_t)(VCO / ClockConfig->PLL.PLLR);
+            SrcFreq = RCC_GetPLLSourceFreq(ClockConfig->PLL.Source);
+            PLLIn = (uint64_t)SrcFreq / ClockConfig->PLL.PLLM;
+            VCO = PLLIn * ClockConfig->PLL.PLLN;
+
+            if (ClockConfig->SysClk == RCC_SYSCLK_PLLP)
+            {
+                *Freq = (uint32_t)(VCO / ClockConfig->PLL.PLLP);
+            }
+            else
+            {
+                *Freq = (uint32_t)(VCO / ClockConfig->PLL.PLLR);
+            }
         }
     }
     else
@@ -197,26 +244,36 @@ static error_t RCC_ValidateConfig(const RCC_ClockConfig_t *ClockConfig)
     }
     else if ((ClockConfig->SysClk == RCC_SYSCLK_PLLP) || (ClockConfig->SysClk == RCC_SYSCLK_PLLR))
     {
-        PLLIn = (uint64_t)RCC_GetPLLSourceFreq(ClockConfig->PLL.Source) / ClockConfig->PLL.PLLM;
-        VCO = PLLIn * ClockConfig->PLL.PLLN;
-
         if (((ClockConfig->PLL.Source != RCC_PLL_SRC_HSI) && (ClockConfig->PLL.Source != RCC_PLL_SRC_HSE)) ||
             (ClockConfig->PLL.PLLM < RCC_CFG_PLLM_MIN_VALUE) || (ClockConfig->PLL.PLLM > RCC_CFG_PLLM_MAX_VALUE) ||
             (ClockConfig->PLL.PLLN < RCC_CFG_PLLN_MIN_VALUE) || (ClockConfig->PLL.PLLN > RCC_CFG_PLLN_MAX_VALUE) ||
             (ClockConfig->PLL.PLLQ < RCC_CFG_PLLQ_MIN_VALUE) || (ClockConfig->PLL.PLLQ > RCC_CFG_PLLQ_MAX_VALUE) ||
             (ClockConfig->PLL.PLLR < RCC_CFG_PLLR_MIN_VALUE) || (ClockConfig->PLL.PLLR > RCC_CFG_PLLR_MAX_VALUE) ||
-            (RCC_EncodePLLP(ClockConfig->PLL.PLLP) == RCC_INVALID_ENCODING) ||
-            (PLLIn < RCC_CFG_MIN_PLL_IN_HZ) || (PLLIn > RCC_CFG_MAX_PLL_IN_HZ) ||
-            (VCO < RCC_CFG_MIN_PLL_VCO_HZ) || (VCO > RCC_CFG_MAX_PLL_VCO_HZ) ||
-            ((VCO / ClockConfig->PLL.PLLP) > RCC_CFG_MAX_PLLP_OUT_HZ) ||
-            ((VCO / ClockConfig->PLL.PLLR) > RCC_CFG_MAX_PLLR_OUT_HZ))
+            (RCC_EncodePLLP(ClockConfig->PLL.PLLP) == RCC_INVALID_ENCODING))
         {
             ErrorState = OUT_OF_RANGE;
         }
+        else
+        {
+            PLLIn = (uint64_t)RCC_GetPLLSourceFreq(ClockConfig->PLL.Source) / ClockConfig->PLL.PLLM;
+            VCO = PLLIn * ClockConfig->PLL.PLLN;
+
+            if ((PLLIn < RCC_CFG_MIN_PLL_IN_HZ) || (PLLIn > RCC_CFG_MAX_PLL_IN_HZ) ||
+                (VCO < RCC_CFG_MIN_PLL_VCO_HZ) || (VCO > RCC_CFG_MAX_PLL_VCO_HZ) ||
+                ((VCO / ClockConfig->PLL.PLLP) > RCC_CFG_MAX_PLLP_OUT_HZ) ||
+                ((VCO / ClockConfig->PLL.PLLR) > RCC_CFG_MAX_PLLR_OUT_HZ))
+            {
+                ErrorState = OUT_OF_RANGE;
+            }
+        }
+    }
+    else if ((ClockConfig->SysClk != RCC_SYSCLK_HSI) && (ClockConfig->SysClk != RCC_SYSCLK_HSE))
+    {
+        ErrorState = OUT_OF_RANGE;
     }
     else
     {
-        ErrorState = RCC_GetConfigSYSCLK(ClockConfig, &SYSCLK);
+        /* Valid non-PLL system clock source. */
     }
 
     if (ErrorState == OK)
@@ -264,45 +321,6 @@ static error_t RCC_ApplyPrescalers(const RCC_ClockConfig_t *ClockConfig)
 }
 
 
-static error_t RCC_EnableClockSource(RCC_SystemClock_t ClockSource, RCC_PLLSource_t PLLSource)
-{
-    error_t ErrorState = OK;
-
-    if (ClockSource == RCC_SYSCLK_HSI)
-    {
-        SET_BIT(RCC->CR, RCC_CR_HSION_BIT);
-        ErrorState = RCC_WaitBit(&(RCC->CR), RCC_CR_HSIRDY_BIT, 1U);
-    }
-    else if (ClockSource == RCC_SYSCLK_HSE)
-    {
-        SET_BIT(RCC->CR, RCC_CR_HSEON_BIT);
-        ErrorState = RCC_WaitBit(&(RCC->CR), RCC_CR_HSERDY_BIT, 1U);
-    }
-    else if ((ClockSource == RCC_SYSCLK_PLLP) || (ClockSource == RCC_SYSCLK_PLLR))
-    {
-        ErrorState = RCC_EnableClockSource((PLLSource == RCC_PLL_SRC_HSI) ? RCC_SYSCLK_HSI : RCC_SYSCLK_HSE, RCC_PLL_SRC_HSI);
-    }
-    else
-    {
-        ErrorState = OUT_OF_RANGE;
-    }
-
-    return ErrorState;
-}
-
-
-static error_t RCC_SelectSystemClock(uint32_t ClockValue)
-{
-    error_t ErrorState = OK;
-
-    RCC->CFGR &= ~RCC_CFGR_SW_MASK;
-    RCC->CFGR |= (ClockValue << RCC_CFGR_SW_POS);
-    ErrorState = RCC_WaitSystemClock(ClockValue);
-
-    return ErrorState;
-}
-
-
 static error_t RCC_WritePLLConfig(const RCC_PLLConfig_t *PLL)
 {
     error_t ErrorState = OK;
@@ -331,22 +349,21 @@ static error_t RCC_WritePLLConfig(const RCC_PLLConfig_t *PLL)
 static error_t RCC_ConfigPLL(const RCC_ClockConfig_t *ClockConfig)
 {
     error_t ErrorState = OK;
-    uint32_t CurrentClock = ((RCC->CFGR & RCC_CFGR_SWS_MASK) >> RCC_CFGR_SWS_POS);
+    uint32_t CurrentClock = RCC_GetCurrentSystemClock();
 
-    if ((CurrentClock == RCC_SYSCLK_PLLP) || (CurrentClock == RCC_SYSCLK_PLLR))
+    if ((CurrentClock == RCC_SYSCLK_SW_PLLP) || (CurrentClock == RCC_SYSCLK_SW_PLLR))
     {
-        ErrorState = RCC_EnableClockSource(RCC_SYSCLK_HSI, RCC_PLL_SRC_HSI);
+        ErrorState = RCC_SetClockStatus(HSIk, ON);
 
         if (ErrorState == OK)
         {
-            ErrorState = RCC_SelectSystemClock(RCC_SYSCLK_HSI);
+            ErrorState = RCC_SetSystemClock(HSIk);
         }
     }
 
     if (ErrorState == OK)
     {
-        CLR_BIT(RCC->CR, RCC_CR_PLLON_BIT);
-        ErrorState = RCC_WaitBit(&(RCC->CR), RCC_CR_PLLRDY_BIT, 0U);
+        ErrorState = RCC_SetClockStatus(PLLk, OFF);
     }
 
     if (ErrorState == OK)
@@ -356,8 +373,7 @@ static error_t RCC_ConfigPLL(const RCC_ClockConfig_t *ClockConfig)
 
     if (ErrorState == OK)
     {
-        SET_BIT(RCC->CR, RCC_CR_PLLON_BIT);
-        ErrorState = RCC_WaitBit(&(RCC->CR), RCC_CR_PLLRDY_BIT, 1U);
+        ErrorState = RCC_SetClockStatus(PLLk, ON);
     }
 
     return ErrorState;
@@ -389,6 +405,142 @@ static error_t RCC_SetPeripheralClock(volatile uint32_t *Reg, uint32_t Periphera
 /*                              Public APIs                                      */
 /*==============================================================================*/
 
+error_t RCC_SetClockStatus(Clock_t clk, Status_t status)
+{
+    error_t ErrorState = OK;
+    uint8_t EnableBit = ZERO_U;
+    uint8_t ReadyBit = ZERO_U;
+    uint8_t ExpectedReadyValue = RCC_READY_FLAG_CLEAR;
+
+    if (((uint32_t)clk > (uint32_t)PLLRk) || ((status != OFF) && (status != ON)))
+    {
+        ErrorState = OUT_OF_RANGE;
+    }
+    else
+    {
+        switch (clk)
+        {
+            case HSIk:
+                EnableBit = RCC_CR_HSION_BIT;
+                ReadyBit = RCC_CR_HSIRDY_BIT;
+                break;
+
+            case HSEk:
+                EnableBit = RCC_CR_HSEON_BIT;
+                ReadyBit = RCC_CR_HSERDY_BIT;
+                break;
+
+            case PLLk:
+            case PLLRk:
+                EnableBit = RCC_CR_PLLON_BIT;
+                ReadyBit = RCC_CR_PLLRDY_BIT;
+                break;
+
+            default:
+                ErrorState = OUT_OF_RANGE;
+                break;
+        }
+    }
+
+    if ((ErrorState == OK) && (status == OFF))
+    {
+        ErrorState = RCC_CheckClockCanBeDisabled(clk);
+    }
+
+    if (ErrorState == OK)
+    {
+        if (status == ON)
+        {
+            SET_BIT(RCC->CR, EnableBit);
+            ExpectedReadyValue = RCC_READY_FLAG_SET;
+        }
+        else
+        {
+            CLR_BIT(RCC->CR, EnableBit);
+            ExpectedReadyValue = RCC_READY_FLAG_CLEAR;
+        }
+
+        ErrorState = RCC_WaitBit(&(RCC->CR), ReadyBit, ExpectedReadyValue);
+    }
+
+    return ErrorState;
+}
+
+
+error_t RCC_SetSystemClock(Clock_t clk)
+{
+    error_t ErrorState = OK;
+    uint32_t SWValue = RCC_INVALID_ENCODING;
+
+    if ((uint32_t)clk > (uint32_t)PLLRk)
+    {
+        ErrorState = OUT_OF_RANGE;
+    }
+    else
+    {
+        switch (clk)
+        {
+            case HSIk:
+                if (GET_BIT(RCC->CR, RCC_CR_HSIRDY_BIT) == ZERO_U)
+                {
+                    ErrorState = TIMEOUT;
+                }
+                else
+                {
+                    SWValue = RCC_SYSCLK_SW_HSI;
+                }
+                break;
+
+            case HSEk:
+                if (GET_BIT(RCC->CR, RCC_CR_HSERDY_BIT) == ZERO_U)
+                {
+                    ErrorState = TIMEOUT;
+                }
+                else
+                {
+                    SWValue = RCC_SYSCLK_SW_HSE;
+                }
+                break;
+
+            case PLLk:
+                if (GET_BIT(RCC->CR, RCC_CR_PLLRDY_BIT) == ZERO_U)
+                {
+                    ErrorState = TIMEOUT;
+                }
+                else
+                {
+                    SWValue = RCC_SYSCLK_SW_PLLP;
+                }
+                break;
+
+            case PLLRk:
+                if (GET_BIT(RCC->CR, RCC_CR_PLLRDY_BIT) == ZERO_U)
+                {
+                    ErrorState = TIMEOUT;
+                }
+                else
+                {
+                    SWValue = RCC_SYSCLK_SW_PLLR;
+                }
+                break;
+
+            default:
+                ErrorState = OUT_OF_RANGE;
+                break;
+        }
+    }
+
+    if (ErrorState == OK)
+    {
+        RCC->CFGR &= ~RCC_CFGR_SW_MASK;
+        RCC->CFGR |= (SWValue << RCC_CFGR_SW_POS);
+        ErrorState = RCC_WaitSystemClock(SWValue);
+    }
+
+    return ErrorState;
+}
+
+
 error_t RCC_ApplyClockConfig(const RCC_ClockConfig_t *ClockConfig)
 {
     error_t ErrorState = RCC_ValidateConfig(ClockConfig);
@@ -400,17 +552,39 @@ error_t RCC_ApplyClockConfig(const RCC_ClockConfig_t *ClockConfig)
 
     if (ErrorState == OK)
     {
-        ErrorState = RCC_EnableClockSource(ClockConfig->SysClk, ClockConfig->PLL.Source);
-    }
+        if (ClockConfig->SysClk == RCC_SYSCLK_HSI)
+        {
+            ErrorState = RCC_SetClockStatus(HSIk, ON);
+        }
+        else if (ClockConfig->SysClk == RCC_SYSCLK_HSE)
+        {
+            ErrorState = RCC_SetClockStatus(HSEk, ON);
+        }
+        else if ((ClockConfig->SysClk == RCC_SYSCLK_PLLP) || (ClockConfig->SysClk == RCC_SYSCLK_PLLR))
+        {
+            if (ClockConfig->PLL.Source == RCC_PLL_SRC_HSI)
+            {
+                ErrorState = RCC_SetClockStatus(HSIk, ON);
+            }
+            else
+            {
+                ErrorState = RCC_SetClockStatus(HSEk, ON);
+            }
 
-    if ((ErrorState == OK) && ((ClockConfig->SysClk == RCC_SYSCLK_PLLP) || (ClockConfig->SysClk == RCC_SYSCLK_PLLR)))
-    {
-        ErrorState = RCC_ConfigPLL(ClockConfig);
+            if (ErrorState == OK)
+            {
+                ErrorState = RCC_ConfigPLL(ClockConfig);
+            }
+        }
+        else
+        {
+            ErrorState = OUT_OF_RANGE;
+        }
     }
 
     if (ErrorState == OK)
     {
-        ErrorState = RCC_SelectSystemClock((uint32_t)ClockConfig->SysClk);
+        ErrorState = RCC_SetSystemClock((Clock_t)ClockConfig->SysClk);
     }
 
     return ErrorState;

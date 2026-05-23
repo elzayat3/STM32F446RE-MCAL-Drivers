@@ -3,7 +3,7 @@
  * @file    RCC_Cfg.c
  * @author  Abdelrahman Elzayat
  * @brief   Simple RCC configuration source file.
- * @version 2.0
+ * @version 2.2
  * @date    Jun 27, 2025
  ******************************************************************************
  * @details
@@ -18,25 +18,85 @@
  * PCLK2         = 16 MHz
  * @endcode
  *
- * Stored PLL configuration:
+ * HSI direct clock configuration:
+ * @code
+ * HSI source = 16 MHz
+ *
+ * If SYSCLK source = HSI:
+ * SYSCLK = 16 MHz
+ * HCLK   = 16 MHz   when AHBPrescaler  = 1
+ * PCLK1  = 16 MHz   when APB1Prescaler = 1
+ * PCLK2  = 16 MHz   when APB2Prescaler = 1
+ * @endcode
+ *
+ * HSE direct clock configuration:
+ * @code
+ * HSE source = 8 MHz
+ *
+ * If SYSCLK source = HSE:
+ * SYSCLK = 8 MHz
+ * HCLK   = 8 MHz    when AHBPrescaler  = 1
+ * PCLK1  = 8 MHz    when APB1Prescaler = 1
+ * PCLK2  = 8 MHz    when APB2Prescaler = 1
+ * @endcode
+ *
+ * Stored low-speed PLL configuration using HSI:
  * @code
  * PLL source = HSI = 16 MHz
- * PLLM       = 8
- * PLLN       = 168
- * PLLP       = 4
- * PLLQ       = 7
- * PLLR       = 4
+ * PLLM       = 16
+ * PLLN       = 192
+ * PLLP       = 8
+ * PLLQ       = 8
+ * PLLR       = 7
  *
- * PLL_IN     = 16 MHz / 8    = 2 MHz
- * VCO_OUT    = 2 MHz * 168   = 336 MHz
- * PLLP_OUT   = 336 MHz / 4   = 84 MHz
- * PLLQ_OUT   = 336 MHz / 7   = 48 MHz
- * PLLR_OUT   = 336 MHz / 4   = 84 MHz
+ * PLL_IN     = 16 MHz / 16   = 1 MHz
+ * VCO_OUT    = 1 MHz * 192   = 192 MHz
+ * PLLP_OUT   = 192 MHz / 8   = 24 MHz
+ * PLLQ_OUT   = 192 MHz / 8   = 24 MHz
+ * PLLR_OUT   = 192 MHz / 7   = 27.42 MHz approximately
+ *
+ * If SYSCLK source = PLLk:
+ * SYSCLK = PLLP_OUT = 24 MHz
+ *
+ * If SYSCLK source = PLLRk:
+ * SYSCLK = PLLR_OUT = 27.42 MHz approximately
  * @endcode
+ *
+ * Alternative low-speed PLL configuration using HSE:
+ * @code
+ * PLL source = HSE = 8 MHz
+ * PLLM       = 8
+ * PLLN       = 192
+ * PLLP       = 8
+ * PLLQ       = 8
+ * PLLR       = 7
+ *
+ * PLL_IN     = 8 MHz / 8     = 1 MHz
+ * VCO_OUT    = 1 MHz * 192   = 192 MHz
+ * PLLP_OUT   = 192 MHz / 8   = 24 MHz
+ * PLLQ_OUT   = 192 MHz / 8   = 24 MHz
+ * PLLR_OUT   = 192 MHz / 7   = 27.42 MHz approximately
+ *
+ * If SYSCLK source = PLLk:
+ * SYSCLK = PLLP_OUT = 24 MHz
+ *
+ * If SYSCLK source = PLLRk:
+ * SYSCLK = PLLR_OUT = 27.42 MHz approximately
+ * @endcode
+ *
+ * @note
+ * In the Clock_t API:
+ * - PLLk  selects PLLP output as the system clock.
+ * - PLLRk selects PLLR output as the system clock.
  *
  * @note
  * The stored PLL setup is not used while SysClk = RCC_SYSCLK_HSI.
  * It is only used if SysClk is changed to RCC_SYSCLK_PLLP or RCC_SYSCLK_PLLR.
+ *
+ * @warning
+ * If HSE = 8 MHz is used as PLL source, PLLM must be changed to 8.
+ * Keeping PLLM = 16 with HSE gives PLL_IN = 0.5 MHz, which is below
+ * the valid PLL input range.
  *
  * @note
  * Prescaler values are real divider values, not hardware encoded values.
@@ -94,19 +154,49 @@
  * PCLK2  = 16 MHz
  * @endcode
  *
- * Stored PLL setup:
+ * Stored low-speed PLL setup using HSI:
  * @code
  * Source = RCC_PLL_SRC_HSI
+ * PLLM   = 16
+ * PLLN   = 192
+ * PLLP   = RCC_PLLP_DIV_8
+ * PLLQ   = 8
+ * PLLR   = 7
+ *
+ * PLL_IN   = 1 MHz
+ * VCO_OUT  = 192 MHz
+ * PLLP_OUT = 24 MHz
+ * PLLQ_OUT = 24 MHz
+ * PLLR_OUT = 27.42 MHz approximately
+ * @endcode
+ *
+ * PLL output meaning in Clock_t API:
+ * @code
+ * PLLk  -> PLLP output -> 24 MHz
+ * PLLRk -> PLLR output -> 27.42 MHz approximately
+ * @endcode
+ *
+ * HSE alternative setup:
+ * @code
+ * If PLL source is changed to RCC_PLL_SRC_HSE and HSE = 8 MHz,
+ * PLLM must be changed from 16 to 8 to keep PLL_IN = 1 MHz.
+ *
+ * Source = RCC_PLL_SRC_HSE
  * PLLM   = 8
- * PLLN   = 168
- * PLLP   = RCC_PLLP_DIV_4
- * PLLQ   = 7
- * PLLR   = 4
+ * PLLN   = 192
+ * PLLP   = RCC_PLLP_DIV_8
+ * PLLQ   = 8
+ * PLLR   = 7
+ *
+ * PLLP_OUT = 24 MHz
+ * PLLR_OUT = 27.42 MHz approximately
  * @endcode
  *
  * @note
- * The PLL values are stored here so the user can easily switch SysClk to
- * RCC_SYSCLK_PLLP or RCC_SYSCLK_PLLR later using RCC_ApplyClockConfig().
+ * The PLL values are stored here so the user can easily switch SysClk later:
+ * - to PLLk  (which means RCC_SYSCLK_PLLP / PLLP output), or
+ * - to PLLRk (which means RCC_SYSCLK_PLLR / PLLR output)
+ * using RCC_ApplyClockConfig() or RCC_SetSystemClock().
  */
 const RCC_ClockConfig_t RCC_DefaultClockConfig =
 {
@@ -115,11 +205,11 @@ const RCC_ClockConfig_t RCC_DefaultClockConfig =
     .PLL =
     {
         .Source = RCC_PLL_SRC_HSI,
-        .PLLM   = 8U,
-        .PLLN   = 168U,
-        .PLLP   = RCC_PLLP_DIV_4,
-        .PLLQ   = 7U,
-        .PLLR   = 4U
+        .PLLM   = 16U,
+        .PLLN   = 192U,
+        .PLLP   = RCC_PLLP_DIV_8,
+        .PLLQ   = 8U,
+        .PLLR   = 7U
     },
 
     .AHBPrescaler  = 1U,
