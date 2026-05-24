@@ -28,7 +28,9 @@ F446/
 │
 ├── CFG/
 │   ├── RCC_Cfg.c
-│   └── RCC_Cfg.h
+│   ├── RCC_Cfg.h
+│   ├── GPIO_Cfg.c
+│   └── GPIO_Cfg.h
 │
 ├── INC/
 │   ├── MemMap.h
@@ -37,7 +39,10 @@ F446/
 ├── MCAL/
 │   ├── RCC_Int.h
 │   ├── RCC_Prg.c
-│   └── RCC_Private.h
+│   ├── RCC_Private.h
+│   ├── GPIO_Int.h
+│   ├── GPIO_Prg.c
+│   └── GPIO_Private.h
 │
 ├── Src/
 │   └── main.c
@@ -106,8 +111,11 @@ INC/MemMap.h
 Contains:
 
 - STM32F446RE base addresses.
+- GPIOA to GPIOH base addresses.
 - RCC base address.
+- GPIO register structure mapping.
 - RCC register structure mapping.
+- GPIO peripheral pointers.
 - RCC peripheral pointer.
 
 ---
@@ -163,6 +171,64 @@ The RCC driver currently supports:
 - Validation for PLL parameters, bus limits and prescaler values.
 - Protection against disabling the currently active system clock source.
 - Protection against disabling the oscillator feeding the active PLL system clock.
+
+---
+
+### 4. GPIO Driver
+
+Driver files:
+
+```text
+MCAL/
+├── GPIO_Int.h
+├── GPIO_Prg.c
+└── GPIO_Private.h
+```
+
+Configuration files:
+
+```text
+CFG/
+├── GPIO_Cfg.c
+└── GPIO_Cfg.h
+```
+
+Current GPIO driver version:
+
+```text
+v1.0
+```
+
+The GPIO driver currently supports:
+
+- Pin initialization using `GPIO_Pin_Init()`.
+- Pin write using `GPIO_SetPin_Value()`.
+- Pin read using `GPIO_GetPin_Value()`.
+- Pin toggle using `GPIO_TogglePin_Value()`.
+- GPIO port abstraction using `GPIO_Port_t` instead of direct register pointers.
+- GPIO pin abstraction using `GPIO_Pin_t`.
+- GPIO modes:
+  - Input
+  - Output
+  - Alternate function
+  - Analog
+- Output types:
+  - Push-pull
+  - Open-drain
+- Output speed configuration:
+  - Low
+  - Medium
+  - High
+  - Very high
+- Pull configuration:
+  - No pull
+  - Pull-up
+  - Pull-down
+- Alternate function selection from `GPIO_AF0` to `GPIO_AF15`.
+- Validation for port, pin, mode, speed, pull type, output type and alternate function.
+- Error handling using `error_t`.
+- Atomic pin set/reset using the GPIO `BSRR` register.
+- Alternate function configuration using `AFR[0]` and `AFR[1]`.
 
 ---
 
@@ -498,6 +564,316 @@ RCC_SetSystemClock(PLLRk);  /* Selects PLLR output */
 
 ---
 
+## GPIO Driver Overview
+
+The GPIO driver uses high-level enum-based APIs, so the application layer does not access GPIO register pointers directly.
+
+Example port selection:
+
+```c
+GPIO_PORTA
+GPIO_PORTB
+GPIO_PORTC
+GPIO_PORTD
+GPIO_PORTE
+GPIO_PORTF
+GPIO_PORTG
+GPIO_PORTH
+```
+
+Example pin selection:
+
+```c
+GPIO_PIN0
+GPIO_PIN1
+GPIO_PIN2
+...
+GPIO_PIN15
+```
+
+---
+
+## GPIO Configuration Structure
+
+GPIO pins are configured using `GPIO_Config_t`:
+
+```c
+typedef struct
+{
+    GPIO_Port_t       Port;
+    GPIO_Pin_t        Pin;
+    GPIO_Mode_t       Mode;
+    GPIO_Speed_t      Speed;
+    GPIO_OutputType_t OutputType;
+    GPIO_Pull_t       Pull;
+    GPIO_Alternate_t  Alternate;
+
+} GPIO_Config_t;
+```
+
+The `Alternate` field is only applied when:
+
+```c
+Mode = GPIO_MODE_ALTERNATE
+```
+
+If the pin is configured as input, output or analog, the driver clears the corresponding alternate function bits.
+
+---
+
+## GPIO Modes
+
+```c
+typedef enum
+{
+    GPIO_MODE_INPUT = 0u,
+    GPIO_MODE_OUTPUT,
+    GPIO_MODE_ALTERNATE,
+    GPIO_MODE_ANALOG,
+    GPIO_MAX_MODE
+
+} GPIO_Mode_t;
+```
+
+Register mapping:
+
+```text
+GPIO_MODE_INPUT      -> MODER bits = 00
+GPIO_MODE_OUTPUT     -> MODER bits = 01
+GPIO_MODE_ALTERNATE  -> MODER bits = 10
+GPIO_MODE_ANALOG     -> MODER bits = 11
+```
+
+---
+
+## GPIO Output Types
+
+```c
+typedef enum
+{
+    GPIO_PUSH_PULL = 0u,
+    GPIO_OPEN_DRAIN,
+    GPIO_MAX_OUTPUT_TYPE
+
+} GPIO_OutputType_t;
+```
+
+Register mapping:
+
+```text
+GPIO_PUSH_PULL   -> OTYPER bit = 0
+GPIO_OPEN_DRAIN  -> OTYPER bit = 1
+```
+
+---
+
+## GPIO Output Speeds
+
+```c
+typedef enum
+{
+    GPIO_SPEED_LOW = 0u,
+    GPIO_SPEED_MEDIUM,
+    GPIO_SPEED_HIGH,
+    GPIO_SPEED_VERY_HIGH,
+    GPIO_MAX_SPEED
+
+} GPIO_Speed_t;
+```
+
+Register mapping:
+
+```text
+GPIO_SPEED_LOW        -> OSPEEDR bits = 00
+GPIO_SPEED_MEDIUM     -> OSPEEDR bits = 01
+GPIO_SPEED_HIGH       -> OSPEEDR bits = 10
+GPIO_SPEED_VERY_HIGH  -> OSPEEDR bits = 11
+```
+
+---
+
+## GPIO Pull Configuration
+
+```c
+typedef enum
+{
+    GPIO_NO_PULL = 0u,
+    GPIO_PULL_UP,
+    GPIO_PULL_DOWN,
+    GPIO_MAX_PULL
+
+} GPIO_Pull_t;
+```
+
+Register mapping:
+
+```text
+GPIO_NO_PULL    -> PUPDR bits = 00
+GPIO_PULL_UP    -> PUPDR bits = 01
+GPIO_PULL_DOWN  -> PUPDR bits = 10
+```
+
+---
+
+## GPIO Alternate Function Support
+
+The driver supports alternate function selection from `GPIO_AF0` to `GPIO_AF15`.
+
+```c
+typedef enum
+{
+    GPIO_AF0 = 0u,
+    GPIO_AF1,
+    GPIO_AF2,
+    GPIO_AF3,
+    GPIO_AF4,
+    GPIO_AF5,
+    GPIO_AF6,
+    GPIO_AF7,
+    GPIO_AF8,
+    GPIO_AF9,
+    GPIO_AF10,
+    GPIO_AF11,
+    GPIO_AF12,
+    GPIO_AF13,
+    GPIO_AF14,
+    GPIO_AF15,
+    GPIO_MAX_AF
+
+} GPIO_Alternate_t;
+```
+
+Alternate function register mapping:
+
+```text
+AFR[0] controls GPIO pins 0  to 7
+AFR[1] controls GPIO pins 8  to 15
+Each pin uses 4 bits inside AFR.
+```
+
+Example:
+
+```text
+PA2 with GPIO_AF7 can be used as USART2_TX on STM32F446RE.
+PA3 with GPIO_AF7 can be used as USART2_RX on STM32F446RE.
+```
+
+> **Important:**  
+> The correct alternate function number depends on the selected pin and peripheral.
+> Always check the STM32F446RE alternate function mapping table in the datasheet.
+
+---
+
+## GPIO Public APIs
+
+```c
+error_t GPIO_Pin_Init(const GPIO_Config_t *Copy_pstConfig);
+
+error_t GPIO_SetPin_Value(GPIO_Port_t Copy_uddtPort,
+                          GPIO_Pin_t Copy_uddtPin,
+                          GPIO_State_t Copy_uddtState);
+
+error_t GPIO_GetPin_Value(GPIO_Port_t Copy_uddtPort,
+                          GPIO_Pin_t Copy_uddtPin,
+                          GPIO_State_t *Copy_puddtState);
+
+error_t GPIO_TogglePin_Value(GPIO_Port_t Copy_uddtPort,
+                             GPIO_Pin_t Copy_uddtPin);
+```
+
+---
+
+## GPIO API Notes
+
+### `GPIO_Pin_Init()`
+
+Used to configure one GPIO pin.
+
+Return values:
+
+```text
+OK            Pin configured successfully.
+NULL_PTR      Config pointer is NULL.
+OUT_OF_RANGE  One or more configuration parameters are invalid.
+```
+
+The function configures:
+
+```text
+MODER
+OSPEEDR
+PUPDR
+OTYPER
+AFR[0] or AFR[1] when alternate mode is selected
+```
+
+### `GPIO_SetPin_Value()`
+
+Used to set a GPIO output pin to high or low.
+
+Return values:
+
+```text
+OK            Pin value changed successfully.
+OUT_OF_RANGE  Invalid port, pin or state.
+```
+
+Safety behavior:
+
+```text
+The function writes to BSRR instead of directly modifying ODR.
+This gives atomic set/reset behavior.
+```
+
+### `GPIO_GetPin_Value()`
+
+Used to read the current value of a GPIO pin from `IDR`.
+
+Return values:
+
+```text
+OK            Pin value read successfully.
+NULL_PTR      State pointer is NULL.
+OUT_OF_RANGE  Invalid port or pin.
+```
+
+### `GPIO_TogglePin_Value()`
+
+Used to toggle a GPIO output pin.
+
+Return values:
+
+```text
+OK            Pin toggled successfully.
+OUT_OF_RANGE  Invalid port or pin.
+```
+
+---
+
+## GPIO Implementation Notes
+
+The application uses `GPIO_Port_t` values such as `GPIO_PORTA`.
+
+Inside `GPIO_Prg.c`, the driver converts the selected port enum to the correct register pointer using a private static array:
+
+```c
+static GPIO_RegDef_t* const GPIO_Ports[PORT_NUMBER] =
+{
+    GPIOA,
+    GPIOB,
+    GPIOC,
+    GPIOD,
+    GPIOE,
+    GPIOF,
+    GPIOG,
+    GPIOH
+};
+```
+
+This keeps the application layer clean and avoids exposing register addresses directly.
+
+---
+
 ## Example Usage
 
 ### Initialize RCC
@@ -527,6 +903,163 @@ int main(void)
     RCC_Init();
 
     RCC_EnableAHB1Clock(RCC_AHB1_GPIOA);
+
+    while (1)
+    {
+    }
+}
+```
+
+---
+
+### Configure Nucleo LED PA5 as Output
+
+```c
+#include "RCC_Int.h"
+#include "GPIO_Int.h"
+
+int main(void)
+{
+    RCC_Init();
+
+    RCC_EnableAHB1Clock(RCC_AHB1_GPIOA);
+
+    GPIO_Config_t Led =
+    {
+        .Port       = GPIO_PORTA,
+        .Pin        = GPIO_PIN5,
+        .Mode       = GPIO_MODE_OUTPUT,
+        .Speed      = GPIO_SPEED_LOW,
+        .OutputType = GPIO_PUSH_PULL,
+        .Pull       = GPIO_NO_PULL,
+        .Alternate  = GPIO_AF0
+    };
+
+    GPIO_Pin_Init(&Led);
+
+    GPIO_SetPin_Value(GPIO_PORTA, GPIO_PIN5, GPIO_HIGH);
+
+    while (1)
+    {
+    }
+}
+```
+
+---
+
+### Toggle Nucleo LED PA5
+
+```c
+#include "RCC_Int.h"
+#include "GPIO_Int.h"
+
+int main(void)
+{
+    RCC_Init();
+
+    RCC_EnableAHB1Clock(RCC_AHB1_GPIOA);
+
+    GPIO_Config_t Led =
+    {
+        .Port       = GPIO_PORTA,
+        .Pin        = GPIO_PIN5,
+        .Mode       = GPIO_MODE_OUTPUT,
+        .Speed      = GPIO_SPEED_LOW,
+        .OutputType = GPIO_PUSH_PULL,
+        .Pull       = GPIO_NO_PULL,
+        .Alternate  = GPIO_AF0
+    };
+
+    GPIO_Pin_Init(&Led);
+
+    while (1)
+    {
+        GPIO_TogglePin_Value(GPIO_PORTA, GPIO_PIN5);
+    }
+}
+```
+
+---
+
+### Configure PC13 as Input with Pull-up
+
+```c
+#include "RCC_Int.h"
+#include "GPIO_Int.h"
+
+int main(void)
+{
+    GPIO_State_t ButtonState = GPIO_HIGH;
+
+    RCC_Init();
+
+    RCC_EnableAHB1Clock(RCC_AHB1_GPIOC);
+
+    GPIO_Config_t Button =
+    {
+        .Port       = GPIO_PORTC,
+        .Pin        = GPIO_PIN13,
+        .Mode       = GPIO_MODE_INPUT,
+        .Speed      = GPIO_SPEED_LOW,
+        .OutputType = GPIO_PUSH_PULL,
+        .Pull       = GPIO_PULL_UP,
+        .Alternate  = GPIO_AF0
+    };
+
+    GPIO_Pin_Init(&Button);
+
+    while (1)
+    {
+        GPIO_GetPin_Value(GPIO_PORTC, GPIO_PIN13, &ButtonState);
+    }
+}
+```
+
+---
+
+### Configure USART2 Pins Using Alternate Function
+
+This example configures:
+
+```text
+PA2 -> USART2_TX -> AF7
+PA3 -> USART2_RX -> AF7
+```
+
+```c
+#include "RCC_Int.h"
+#include "GPIO_Int.h"
+
+int main(void)
+{
+    RCC_Init();
+
+    RCC_EnableAHB1Clock(RCC_AHB1_GPIOA);
+
+    GPIO_Config_t USART2_TX =
+    {
+        .Port       = GPIO_PORTA,
+        .Pin        = GPIO_PIN2,
+        .Mode       = GPIO_MODE_ALTERNATE,
+        .Speed      = GPIO_SPEED_HIGH,
+        .OutputType = GPIO_PUSH_PULL,
+        .Pull       = GPIO_PULL_UP,
+        .Alternate  = GPIO_AF7
+    };
+
+    GPIO_Config_t USART2_RX =
+    {
+        .Port       = GPIO_PORTA,
+        .Pin        = GPIO_PIN3,
+        .Mode       = GPIO_MODE_ALTERNATE,
+        .Speed      = GPIO_SPEED_HIGH,
+        .OutputType = GPIO_PUSH_PULL,
+        .Pull       = GPIO_PULL_UP,
+        .Alternate  = GPIO_AF7
+    };
+
+    GPIO_Pin_Init(&USART2_TX);
+    GPIO_Pin_Init(&USART2_RX);
 
     while (1)
     {
@@ -709,7 +1242,6 @@ The project roadmap includes implementing more MCAL drivers for STM32F446RE.
 
 ### Planned MCAL Drivers
 
-- GPIO Driver
 - NVIC Driver
 - EXTI Driver
 - SYSCFG Driver
